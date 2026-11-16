@@ -1,0 +1,10 @@
+*.o
+*.d
+*.asm
+*.sym
+fs.img
+kernel/kernel
+mkfs/mkfs
+.gdbinit
+user/usys.S
+user/_*
