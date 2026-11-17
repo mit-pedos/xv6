@@ -1,91 +1,154 @@
 ================================================================================
-Operating Systems Lab Assignment
-Question 1: Implementing User-Level / Kernel-Supported Threads (clone & join)
+OPERATING SYSTEMS LAB ASSIGNMENT 7 - QUESTION 1
+Kernel-Supported Lightweight Threads (clone & join)
 ================================================================================
 
-1. OVERVIEW & DESIGN
---------------------
-This question implements kernel-supported threads sharing the same user address space
-(page table mappings) while retaining independent execution contexts (registers,
-kernel stack, user stack).
+1. ASSIGNMENT OVERVIEW & OBJECTIVE
+--------------------------------------------------------------------------------
+- Lab / Question : Lab 7, Question 1 (7a)
+- Topic          : Kernel-Supported Threads & Lightweight Processes
+- Test Program   : user/threadtest.c
+- Shell Command  : $ threadtest
 
-Key System Calls Implemented:
-1. int clone(void(*fcn)(void*), void *arg, void *stack):
-   - Allocates a new struct proc using allocproc().
-   - Shares the parent's user address space:
-     Uses uvmshare() to map all physical pages of the parent process into the thread's
-     page table with identical permissions (PTE_R | PTE_W | PTE_U | PTE_X).
-     This guarantees all threads read and write the exact same physical memory.
-   - Preserves independent trapframe mappings: each thread retains its private trapframe
-     mapped at TRAPFRAME (0x3FFFFFFE000) in its page table, preventing multi-core trapframe
-     corruptions.
-   - Sets user instruction pointer np->trapframe->epc = (uint64)fcn.
-   - Sets thread argument np->trapframe->a0 = (uint64)arg.
-   - Sets user stack pointer np->trapframe->sp = stack + PGSIZE (16-byte aligned).
-   - Marks np->is_thread = 1 and sets np->parent = p.
-   - Returns the thread's PID to the caller.
+Objective:
+Implement lightweight kernel-supported threads in xv6:
+1. Thread Model:
+   Lightweight execution entities that share the parent process's virtual address
+   space (code, data, heap) while maintaining independent execution contexts
+   (private CPU registers, private kernel stack, private user stack, and private trapframe).
+2. System Calls:
+   - `int clone(void(*fcn)(void*), void *arg, void *stack)`: Spawns a new thread
+     starting at function pointer `fcn`, passing argument `arg`, and using user stack `stack`.
+   - `int join(void)`: Reaps an exited child thread, frees its private resources,
+     and returns its PID.
+3. Memory Management:
+   - Implement `uvmshare()`: Maps all physical memory pages of the parent process into
+     the child thread's page table with identical permissions.
+   - Modify `freeproc()`: When a thread exits, unmap its virtual pages without freeing
+     the shared physical memory frames.
+   - Modify `kwait()`: Prevent `wait()` from reaping thread children, leaving thread
+     reaping exclusively to `join()`.
 
-2. int join(void):
-   - Scans the process table looking for exited ZOMBIE threads created by the calling process
-     (pp->parent == p && pp->is_thread).
-   - Once a thread exits, reaps it, cleans up its resources via freeproc(), and returns its PID.
-   - If threads are still running, sleeps on sleep_prepare(p) until woken up by thread exit.
 
-3. Process & Memory Management Modifications:
-   - In freeproc(): If p->is_thread == 1, unmaps user virtual pages without freeing the
-     physical memory (uvmunmap(..., do_free=0)), unmaps trampoline & trapframe, and frees
-     only the thread's page directory nodes (uvmfree(p->pagetable, 0)). The physical pages
-     remain intact until the parent process exits.
-   - In kwait(): Checks pp->parent == p && !pp->is_thread, ensuring wait() only reaps
-     normal child processes and leaves threads to join().
+2. THEORETICAL BACKGROUND & OS PRINCIPLES
+--------------------------------------------------------------------------------
+1. Process vs. Thread:
+   - Process (Heavyweight): Has its own independent address space, page table, and
+     isolated memory. Communication requires IPC (pipes, shared memory). High creation
+     and context-switch cost.
+   - Thread (Lightweight Process): Shares virtual address space, open file table, and
+     process metadata with peer threads, but retains:
+     * Private Program Counter / Instruction Pointer (`trapframe->epc`)
+     * Private CPU General-Purpose Registers
+     * Private Kernel Stack (`p->kstack`)
+     * Private User Stack (`trapframe->sp`)
+     * Private Trapframe (`p->trapframe` mapped at `TRAPFRAME = 0x3FFFFFFE000`)
 
-4. User Test Program (user/threadtest.c):
-   - Clones 3 threads, all incrementing a shared global counter 100,000 times concurrently.
-   - Waits for all threads to start using a shared barrier flag (start_flag = 1).
-   - Reaps all 3 threads via join().
-   - Demonstrates that all threads access the exact same shared memory.
-   - Demonstrates the expected race condition: non-atomic increments lead to lost updates
-     (counter < 300,000), motivating Question 2's synchronization using semaphores.
+2. RISC-V Architecture & Calling Convention:
+   - The user stack pointer `sp` MUST be 16-byte aligned in the RISC-V calling convention.
+   - When launching a thread function `void (*fcn)(void *)`:
+     * Register `a0` holds the first function parameter (`arg`).
+     * `epc` (Exception Program Counter) is set to `(uint64)fcn`.
+     * `sp` points to the top of the allocated page: `(uint64)stack + PGSIZE`.
+   - When `sret` returns to user space, the CPU loads `pc = epc` and starts executing `fcn(arg)`.
 
-2. FILES MODIFIED / ADDED
--------------------------
-- kernel/proc.h:
-  * Added int is_thread field to struct proc.
-- kernel/defs.h:
-  * Added declarations for kclone() and kjoin().
-- kernel/proc.c:
-  * Modified allocproc() to initialize is_thread = 0.
-  * Modified freeproc() to avoid freeing shared physical memory for threads.
-  * Modified kwait() to exclude thread processes.
-  * Implemented uvmshare() to map shared physical pages into the thread's page table.
-  * Implemented kclone() and kjoin().
-- kernel/sysproc.c:
-  * Added sys_clone() and sys_join() wrappers.
-- kernel/syscall.h & kernel/syscall.c:
-  * Registered SYS_clone (23) and SYS_join (24).
-- user/user.h & user/usys.pl:
-  * Exported clone() and join() prototypes and stubs to user space.
-- user/threadtest.c:
-  * User-level test harness demonstrating clone(), join(), shared address space,
-    and concurrent race condition.
-- Makefile:
-  * Added $U/_threadtest to UPROGS.
-  * Cleared DETFLAGS to prevent compiler errors on paths containing spaces.
 
-3. HOW TO BUILD AND RUN
------------------------
-Inside this directory:
-    $ make clean
-    $ make qemu
+3. SUMMARY OF MODIFIED & ADDED FILES
+--------------------------------------------------------------------------------
+File                  | Nature   | Purpose / Changes
+----------------------+----------+----------------------------------------------
+kernel/proc.h         | Modified | Added int is_thread field to struct proc.
+kernel/defs.h         | Modified | Declared kclone() and kjoin().
+kernel/proc.c         | Modified | Modified allocproc() to initialize is_thread=0;
+                      |          | implemented uvmshare(), kclone(), and kjoin();
+                      |          | updated freeproc() and kwait() for thread handling.
+kernel/sysproc.c      | Modified | Added sys_clone() and sys_join() system call handlers.
+kernel/syscall.h      | Modified | Registered SYS_clone (23) and SYS_join (24).
+kernel/syscall.c      | Modified | Wired sys_clone and sys_join into syscall table.
+user/user.h           | Modified | Declared clone() and join() in user API.
+user/usys.pl          | Modified | Added syscall stubs.
+Makefile              | Modified | Set CPUS := 1; cleared DETFLAGS; added $U/_threadtest.
+user/threadtest.c     | Created  | Test program cloning 3 threads incrementing a shared
+                      |          | counter concurrently and verifying race conditions.
 
-Once xv6 boots into the shell, run:
-    $ threadtest
 
-To exit QEMU:
-    Press Ctrl+A, then X.
+4. DETAILED CODE WALKTHROUGH
+--------------------------------------------------------------------------------
+a) kernel/proc.c:
+   1. `uvmshare(pagetable_t old, pagetable_t new, uint64 sz)`:
+      Iterates over the parent's user address space page by page:
+      ```c
+      for (uint64 va = 0; va < sz; va += PGSIZE) {
+        pte_t *pte = walk(old, va, 0);
+        uint64 pa = PTE2PA(*pte);
+        uint flags = PTE_FLAGS(*pte);
+        // Map exact same physical frame into new page table
+        mappages(new, va, PGSIZE, pa, flags);
+      }
+      ```
+   2. `kclone(void (*fcn)(void*), void *arg, void *stack)`:
+      - Allocates process using `allocproc()`.
+      - Calls `uvmshare()` to share user memory.
+      - Sets up execution context:
+        ```c
+        np->trapframe->epc = (uint64)fcn;           // Start at thread function
+        np->trapframe->a0 = (uint64)arg;            // Pass argument
+        np->trapframe->sp = (uint64)stack + PGSIZE; // Top of user stack (16-byte aligned)
+        np->is_thread = 1;
+        np->parent = myproc();
+        ```
+      - Changes state to `RUNNABLE` and returns `np->pid`.
 
-4. SAMPLE OUTPUT VERIFICATION
------------------------------
+   3. `kjoin(void)`:
+      - Scans `proc[]` looking for a zombie thread belonging to the caller:
+        `if (pp->parent == p && pp->is_thread)`
+      - Reaps the thread: cleans up via `freeproc()`, returns thread's PID.
+      - If threads are still running, sleeps on `p` until woken up.
+
+   4. `freeproc()`:
+      - If `p->is_thread == 1`:
+        Calls `uvmunmap(p->pagetable, 0, PGROUNDUP(p->sz)/PGSIZE, 0)` with `do_free = 0`.
+        This unmaps the page table entries without freeing the physical pages.
+        Only the thread's private trapframe, trampoline, and page directory nodes are freed.
+
+   5. `kwait()`:
+      - Ignores threads: `if (pp->parent == p && !pp->is_thread)`.
+
+
+5. SYSTEM CALL SPECIFICATIONS
+--------------------------------------------------------------------------------
+1. int clone(void(*fcn)(void*), void *arg, void *stack)
+   - Syscall Number: SYS_clone (23)
+   - Parameters:
+     * `fcn`: Function pointer for thread entry.
+     * `arg`: Void pointer argument passed to `fcn`.
+     * `stack`: Pointer to allocated page for user stack.
+   - Return Value: PID of cloned thread on success, -1 on failure.
+
+2. int join(void)
+   - Syscall Number: SYS_join (24)
+   - Return Value: PID of reaped thread on success, -1 if no threads exist.
+
+
+6. HOW TO COMPILE AND RUN
+--------------------------------------------------------------------------------
+Step 1: Open a terminal and navigate to this folder:
+        cd /home/udit/Desktop/xv6/threads
+
+Step 2: Clean and compile xv6, then launch QEMU:
+        make clean && make qemu
+
+Step 3: Inside the xv6 shell, run the test program:
+        $ threadtest
+
+Step 4: Exit QEMU:
+        Press Ctrl-A, release both keys, then press X.
+
+
+7. VERIFIED TEST EXECUTION OUTPUT & ANALYSIS
+--------------------------------------------------------------------------------
+Output Log:
+--------------------------------------------------------------------------------
 $ threadtest
 ============================================================
    Kernel-Supported Threads Demonstration with clone()      
@@ -111,3 +174,37 @@ Race condition confirmed: Lost updates = 200000 (66% loss).
 Explanation: Unsynchronized concurrent execution caused
 interleaved read-modify-write cycles. (Fixed in Question 2 using Semaphores).
 ============================================================
+
+Analysis:
+- All 3 threads were successfully spawned and shared the exact same address space.
+- Because `counter++` is not atomic, concurrent unsynchronized increments caused
+  lost updates (final count = 100000 vs expected 300000), proving thread sharing
+  and illustrating the classic race condition solved by semaphores in Question 2.
+
+
+8. FREQUENTLY ASKED VIVA / LAB EXAM QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+Q1: Why do threads share page tables, but require separate user stacks and trapframes?
+A1: Sharing the page table allows threads to read and modify shared code, globals, and
+    heap. However, each thread executes different functions or function calls with
+    its own call chain, local variables, and return addresses, requiring a private
+    user stack. Similarly, interrupts and system calls save CPU registers into the
+    trapframe; sharing a trapframe would cause threads to overwrite each other's
+    registers during context switches.
+
+Q2: Why does `freeproc()` call `uvmunmap()` with `do_free = 0` when `p->is_thread == 1`?
+A2: Because the physical memory frames are shared with the parent and peer threads.
+    If the exiting thread called `kfree()` on those physical frames, the surviving
+    threads would suffer page faults or memory corruption. The physical pages must
+    only be freed when the main parent process exits.
+
+Q3: Why must the user stack pointer be 16-byte aligned in RISC-V?
+A3: The RISC-V calling convention mandates that the stack pointer `sp` be a multiple
+    of 16 bytes at function entry. This ensures proper alignment for 128-bit types,
+    floating point registers, and SIMD vectors.
+
+Q4: How does `join()` differentiate between normal child processes and thread children?
+A4: `struct proc` contains the flag `is_thread`. In `kjoin()`, the search checks
+    `pp->parent == p && pp->is_thread`. In `kwait()`, the search checks
+    `pp->parent == p && !pp->is_thread`.
+================================================================================

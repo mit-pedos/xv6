@@ -1,88 +1,125 @@
 ================================================================================
-Operating Systems Lab Assignment
-Question 3: Deadlock Prevention via Resource Ordering (Hierarchical Allocation)
+OPERATING SYSTEMS LAB ASSIGNMENT 6 - QUESTION 3
+Deadlock Prevention via Resource Ordering (Hierarchical Allocation)
 ================================================================================
 
-1. OVERVIEW & THEORETICAL FOUNDATION
-------------------------------------
-This question demonstrates deadlock prevention on actual running xv6 processes
-using the Resource Ordering (Hierarchical Allocation) technique.
+1. ASSIGNMENT OVERVIEW & OBJECTIVE
+--------------------------------------------------------------------------------
+- Lab / Question : Lab 6, Question 3 (6c)
+- Topic          : Deadlock Prevention & Resource Ordering
+- Test Program   : user/resourceorder.c
+- Shell Command  : $ resourceorder fixed (or $ resourceorder bad)
 
-The Four Coffman Conditions for Deadlock:
-1. Mutual Exclusion: At least one non-shareable resource.
-2. Hold and Wait: A process holds at least one resource and is waiting to acquire
-   additional resources held by other processes.
-3. No Preemption: Resources cannot be forcibly preempted from a process.
-4. Circular Wait: A closed chain of processes exists, where each process holds
-   a resource needed by the next process in the chain.
+Objective:
+Demonstrate deadlock prevention on actual concurrent xv6 processes using Havender's
+Resource Ordering (Hierarchical Allocation) technique:
+1. Deadlock Demonstration Mode (`bad`):
+   - Process A requests Lock 1, then Lock 2.
+   - Process B requests Lock 2, then Lock 1 (inconsistent order).
+   - Proves how inconsistent ordering generates circular wait and freezes the system.
+2. Deadlock Prevention Mode (`fixed`):
+   - Imposes a global linear order: $F(\text{Lock } 1) < F(\text{Lock } 2)$.
+   - Both processes must request Lock 1 before Lock 2.
+   - Mathematically eliminates the Circular Wait condition so both processes complete cleanly.
 
-Why Resource Ordering Eliminates Deadlock:
-- Let R = {R1, R2, ..., Rm} be the set of all system resource types.
-- Assign a 1-to-1 mapping function F: R -> N that establishes a global linear order.
-- Protocol: Every process must request resources in strictly increasing order of F.
-  If a process holds resource Ri, it can only request resource Rj if F(Rj) > F(Ri).
-- Proof of Deadlock Prevention:
-  Assume a circular wait exists: P0 -> P1 -> P2 -> ... -> Pk -> P0, where Pi holds
-  resource R(i) and waits for resource R(i+1), and Pk holds R(k) and waits for R(0).
-  By the ordering protocol:
-    F(R(0)) < F(R(1)) < F(R(2)) < ... < F(R(k)) < F(R(0))
-  This yields F(R(0)) < F(R(0)), which is a mathematical contradiction!
-  Therefore, a circular wait is impossible, mathematically guaranteeing that the
-  system remains completely free of deadlocks.
 
-2. IMPLEMENTATION DETAILS
--------------------------
-- Resources:
-  Two shared locks implemented via kernel semaphores (LOCK1 = ID 0, LOCK2 = ID 1).
-- Program (user/resourceorder.c):
-  Accepts a mode argument:
-  1. "bad": Demonstrates the Deadlock Problem.
-     - Process A: Acquires LOCK1, delays, then attempts to acquire LOCK2.
-     - Process B: Acquires LOCK2, delays, then attempts to acquire LOCK1.
-     - Result: Process A holds LOCK1 and waits for LOCK2; Process B holds LOCK2
-       and waits for LOCK1. The system hangs indefinitely in circular wait.
-  2. "fixed": Demonstrates Deadlock Prevention via Consistent Resource Ordering.
-     - Global order: LOCK1 (ID 0) < LOCK2 (ID 1).
-     - Both Process A and Process B are modified to acquire LOCK1 FIRST, then LOCK2.
-     - When Process A holds LOCK1, Process B blocks waiting for LOCK1 BEFORE it can
-       acquire LOCK2.
-     - Process A completes its critical section and releases both locks.
-     - Process B then proceeds and completes cleanly without any hang.
+2. THEORETICAL BACKGROUND & OS PRINCIPLES
+--------------------------------------------------------------------------------
+1. The 4 Coffman Conditions for Deadlock:
+   - Mutual Exclusion: Resources cannot be shared simultaneously.
+   - Hold and Wait: A process holds at least one resource and is waiting to acquire another.
+   - No Preemption: Resources cannot be forcibly seized from a process.
+   - Circular Wait: A closed chain of processes exists: $P_0 \to P_1 \to \dots \to P_k \to P_0$.
 
-3. FILES MODIFIED / ADDED
--------------------------
-- kernel/memlayout.h, kernel/defs.h, kernel/main.c, kernel/proc.c, kernel/sysproc.c,
-  kernel/syscall.h, kernel/syscall.c, user/user.h, user/usys.pl:
-  * Implemented kernel counting semaphore subsystem (sem_init, sem_wait, sem_post).
-- user/resourceorder.c:
-  * Implemented deadlock reproduction scenario ("bad") and deadlock prevention scenario ("fixed")
-    with tick timestamp logging via uptime().
-- Makefile:
-  * Added $U/_resourceorder to UPROGS.
-  * Cleared DETFLAGS to prevent compiler errors on paths with spaces.
-  * Set CPUS := 1.
+2. Havender's Linear Resource Ordering Protocol:
+   - Define a one-to-one mapping function $F: R \to \mathbb{N}$ that assigns a unique
+     integer to every system resource.
+   - Protocol Rule: A process can only request resource $R_j$ if $F(R_j) > F(R_i)$ for all
+     resources $R_i$ currently held by the process.
+   - Proof of Deadlock Impossibility:
+     Suppose a circular wait exists among processes $P_0, P_1, \dots, P_k$.
+     Process $P_i$ holds $R_{(i)}$ and waits for $R_{(i+1)}$, and $P_k$ holds $R_{(k)}$
+     and waits for $R_{(0)}$.
+     Under the ordering rule:
+       $$F(R_{(0)}) < F(R_{(1)}) < F(R_{(2)}) < \dots < F(R_{(k)}) < F(R_{(0)})$$
+     This implies $F(R_{(0)}) < F(R_{(0)})$, which is a logical contradiction!
+     Therefore, circular wait cannot occur.
 
-4. HOW TO BUILD AND RUN
------------------------
-Inside this directory:
-    $ make clean
-    $ make qemu
 
-Once xv6 boots into the shell:
+3. SUMMARY OF MODIFIED & ADDED FILES
+--------------------------------------------------------------------------------
+File                  | Nature   | Purpose / Changes
+----------------------+----------+----------------------------------------------
+kernel/sysproc.c      | Modified | Implemented kernel semaphore subsystem (sem_init,
+                      |          | sem_wait, sem_post) and shm_get.
+kernel/memlayout.h    | Modified | Defined SHM_VA = (TRAPFRAME - PGSIZE).
+kernel/defs.h         | Modified | Declared semaphore and shared memory functions.
+kernel/main.c         | Modified | Initialized semaphore table (seminit()).
+kernel/proc.c         | Modified | Inherited shared page mapping across fork().
+kernel/syscall.h      | Modified | Registered SYS_sem_init, SYS_sem_wait, SYS_sem_post.
+kernel/syscall.c      | Modified | Wired semaphore syscall entries.
+user/user.h           | Modified | Exported sem_init, sem_wait, sem_post to user API.
+user/usys.pl          | Modified | Added syscall stubs.
+Makefile              | Modified | Set CPUS := 1; cleared DETFLAGS; added $U/_resourceorder.
+user/resourceorder.c  | Created  | Implemented deadlock demonstration ("bad") and
+                      |          | deadlock prevention ("fixed") modes with tick logging.
 
-1. To run the FIXED run (Deadlock Prevented - completes cleanly):
-    $ resourceorder fixed
-    (or simply $ resourceorder)
 
-2. To run the BAD run (Deadlock Demonstration - hangs indefinitely):
-    $ resourceorder bad
-    (To exit the hung QEMU session: Press Ctrl+A, then X.)
+4. DETAILED CODE WALKTHROUGH (user/resourceorder.c)
+--------------------------------------------------------------------------------
+a) Inconsistent Ordering ("bad"):
+   ```c
+   // Process A: Lock 1 -> Lock 2
+   sem_wait(LOCK1);
+   pause(2);
+   sem_wait(LOCK2); // Hangs waiting for Process B
 
-5. SAMPLE OUTPUT LOGS
----------------------
+   // Process B: Lock 2 -> Lock 1
+   sem_wait(LOCK2);
+   pause(2);
+   sem_wait(LOCK1); // Hangs waiting for Process A
+   ```
 
+b) Hierarchical Resource Ordering ("fixed"):
+   ```c
+   // Global hierarchy: LOCK1 (0) < LOCK2 (1)
+   // Both Process A and Process B acquire in the exact same order:
+   sem_wait(LOCK1); // Process B blocks here BEFORE getting Lock 2!
+   sem_wait(LOCK2);
+   // Critical Section
+   sem_post(LOCK2);
+   sem_post(LOCK1);
+   ```
+
+
+5. SYSTEM CALL SPECIFICATIONS
+--------------------------------------------------------------------------------
+1. int sem_init(int sem_id, int initial_val): Initializes semaphore `sem_id`.
+2. int sem_wait(int sem_id): Decrements value; blocks if `value <= 0`.
+3. int sem_post(int sem_id): Increments value and wakes waiting processes.
+
+
+6. HOW TO COMPILE AND RUN
+--------------------------------------------------------------------------------
+Step 1: Open a terminal and navigate to this folder:
+        cd /home/udit/Desktop/xv6/resourceorder
+
+Step 2: Clean and compile xv6, then launch QEMU:
+        make clean && make qemu
+
+Step 3: Run the FIXED test (Deadlock Prevented - completes cleanly):
+        $ resourceorder fixed
+        (or simply $ resourceorder)
+
+Step 4: (Optional) Run the BAD test (Deadlock Demonstration - hangs):
+        $ resourceorder bad
+        (Exit QEMU: Press Ctrl-A, then X).
+
+
+7. VERIFIED TEST EXECUTION OUTPUT & ANALYSIS
+--------------------------------------------------------------------------------
 A. Fixed Run (Deadlock Prevented):
-----------------------------------
+--------------------------------------------------------------------------------
 $ resourceorder fixed
 ============================================================
   SCENARIO 2: RESOURCE ORDERING (DEADLOCK PREVENTED)
@@ -107,7 +144,7 @@ Deadlock was completely eliminated by enforcing global resource ordering.
 ============================================================
 
 B. Bad Run (Deadlock Demonstration - Hangs):
---------------------------------------------
+--------------------------------------------------------------------------------
 $ resourceorder bad
 ============================================================
   SCENARIO 1: INCONSISTENT ORDERING (DEADLOCK DEMONSTRATION)
@@ -123,3 +160,29 @@ $ resourceorder bad
 [Tick 4] [Process A (pid 4)]: Attempting to acquire Lock 2...
 [Tick 5] [Process B (pid 5)]: Attempting to acquire Lock 1...
 <System remains indefinitely hung waiting in circular wait>
+
+
+8. FREQUENTLY ASKED VIVA / LAB EXAM QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+Q1: What is the fundamental difference between Deadlock Prevention and Deadlock Avoidance?
+A1: - Deadlock Prevention designs the system protocol such that at least one of the
+      four necessary Coffman conditions can never hold (e.g. eliminating circular wait
+      via resource ordering). No runtime safety checks are needed.
+    - Deadlock Avoidance allows processes to request resources in any order, but the
+      operating system dynamically evaluates each request (e.g. Banker's algorithm)
+      and delays requests that would transition the system into an unsafe state.
+
+Q2: Which Coffman condition does Resource Ordering break?
+A2: The Circular Wait condition.
+
+Q3: What is the main drawback of Resource Ordering in real-world systems?
+A3: It reduces programmer flexibility and can cause inefficient resource utilization:
+    a process may need to acquire a low-ordered resource long before it actually uses
+    it simply because it needs to acquire a high-ordered resource later, preventing
+    other processes from using that low-ordered resource in the meantime.
+
+Q4: In the "fixed" scenario, why doesn't Process B cause a deadlock with Process A?
+A4: Because Process B must acquire Lock 1 first. Since Process A already holds Lock 1,
+    Process B blocks immediately before acquiring Lock 2. Process A can freely
+    acquire Lock 2, finish its work, and release both locks.
+================================================================================

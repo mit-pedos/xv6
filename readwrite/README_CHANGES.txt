@@ -1,85 +1,149 @@
 ================================================================================
-Operating Systems Lab Assignment - 5
-Question 3: Readers-Writers Problem using Semaphores
+OPERATING SYSTEMS LAB ASSIGNMENT 5 - QUESTION 3
+Readers-Writers Problem using Semaphores (Reader-Preference)
 ================================================================================
 
-1. OVERVIEW & POLICY
---------------------
-This question implements a solution to the classic Readers-Writers problem using
-kernel-level counting semaphores and a shared memory region in xv6.
+1. ASSIGNMENT OVERVIEW & OBJECTIVE
+--------------------------------------------------------------------------------
+- Lab / Question : Lab 5, Question 3 (5c)
+- Topic          : Process Concurrency & Readers-Writers Synchronization
+- Test Program   : user/readwrite.c
+- Shell Command  : $ readwrite
 
-Policy Implemented: Readers-Preference
-- Any reader process can enter the critical section to read as long as no writer is
-  currently writing.
-- Multiple readers are permitted to read concurrently.
-- The first reader to enter acquires the exclusive writer lock (wrt semaphore), blocking
-  any writers.
-- Subsequent readers increment read_count and enter immediately without blocking on wrt.
-- The last reader to leave releases the exclusive writer lock (wrt semaphore), allowing
-  a waiting writer to proceed.
-- Writers require strict mutual exclusion: a writer can only enter when read_count == 0
-  and no other writer is active.
+Objective:
+Implement a solution to the classic Readers-Writers synchronization problem using
+kernel-level counting semaphores and a shared memory region in xv6:
+1. Enforce Reader-Preference Policy:
+   - Multiple reader processes may read shared data concurrently without blocking
+     one another.
+   - Writer processes require strictly exclusive access: when a writer writes,
+     no other writer and no readers may be inside the critical section.
+2. Invariants & Correctness Guarantees:
+   - Simultaneous Readers: $ActiveReaders \ge 0$ (observed peak = 3).
+   - Exclusive Writer: When $ActiveWriters == 1$, $ActiveReaders == 0$.
+   - Zero Violations: No concurrent read-write or write-write collisions occur.
 
-2. SYNCHRONIZATION PRIMITIVES & SHARED STATE
---------------------------------------------
-- Shared Memory:
-  Mapped at virtual address SHM_VA = (TRAPFRAME - PGSIZE) = 0x3FFFFFFE000.
-  Holds struct rw_shared:
-    - shared_data: The integer variable modified by writers and inspected by readers.
-    - read_count: Integer tracking current number of active readers.
-    - active_writers: Tracks number of active writers in the critical section (must be 0 or 1).
-    - max_readers_seen: Peak number of concurrent readers observed.
-    - total_writes: Total successful write operations completed.
-    - violations: Counter incremented if a reader detects an active writer or if a writer
-      detects active readers / multiple writers.
 
-- Kernel Semaphores:
-  1. SEM_MUTEX (ID 0): Binary semaphore (initialized to 1) protecting read_count updates.
-  2. SEM_WRT   (ID 1): Binary semaphore (initialized to 1) providing exclusive access to writers
-                       and mutual exclusion between the reader group and writers.
+2. THEORETICAL BACKGROUND & OS PRINCIPLES
+--------------------------------------------------------------------------------
+1. Courtois First Readers-Writers Formulation (Reader-Preference):
+   - Two semaphores:
+     * `SEM_MUTEX` (initialized to 1): Protects the shared counter `read_count`.
+     * `SEM_WRT`   (initialized to 1): Grants exclusive access to the writer, and
+       serves as a mutual-exclusion barrier between the reader group and writers.
+   - Shared Variable:
+     * `read_count`: Tracks the number of readers currently in the critical section.
 
-3. FILES MODIFIED / ADDED
--------------------------
-- kernel/memlayout.h:
-  * Defined SHM_VA as (TRAPFRAME - PGSIZE).
-- kernel/defs.h:
-  * Added declarations for walk(), shminit(), shm_get(), seminit(), ksem_init(),
-    ksem_wait(), and ksem_post().
-- kernel/main.c:
-  * Initialized shared memory subsystem (shminit()) and semaphore table (seminit()).
-- kernel/proc.c:
-  * Unmapped SHM_VA in proc_freepagetable() without freeing the shared physical frame.
-  * Propagated SHM_VA mapping to child processes during kfork().
-- kernel/sysproc.c:
-  * Implemented shminit(), shm_get(), sys_shm_get().
-  * Implemented semaphore table and syscalls: seminit(), ksem_init(), ksem_wait(),
-    ksem_post(), sys_sem_init(), sys_sem_wait(), sys_sem_post().
-- kernel/syscall.h & kernel/syscall.c:
-  * Registered SYS_shm_get (23), SYS_sem_init (24), SYS_sem_wait (25), SYS_sem_post (26).
-- user/user.h & user/usys.pl:
-  * Exported shm_get(), sem_init(), sem_wait(), sem_post() to user space.
-- user/readwrite.c:
-  * Test driver spawning 3 reader processes and 2 writer processes.
-  * Includes assertions verifying no simultaneous reader-writer or writer-writer execution.
-- Makefile:
-  * Added $U/_readwrite to UPROGS.
-  * Cleared DETFLAGS to prevent compiler errors on paths with spaces.
-  * Set CPUS := 1.
+2. Reader Protocol:
+   ```c
+   sem_wait(SEM_MUTEX);
+   read_count++;
+   if (read_count == 1) {
+     sem_wait(SEM_WRT); // First reader locks out writers
+   }
+   sem_post(SEM_MUTEX);
 
-4. HOW TO BUILD AND RUN
------------------------
-Inside this directory:
-    $ make clean
-    $ make qemu
+   // Reading critical section (concurrent readers allowed)
+   read(shared_data);
 
-Once xv6 boots into the shell, run:
-    $ readwrite
+   sem_wait(SEM_MUTEX);
+   read_count--;
+   if (read_count == 0) {
+     sem_post(SEM_WRT); // Last reader unlocks writers
+   }
+   sem_post(SEM_MUTEX);
+   ```
 
-To exit QEMU:
-    Press Ctrl+A, then X.
+3. Writer Protocol:
+   ```c
+   sem_wait(SEM_WRT);   // Acquire exclusive writer lock
 
-5. SAMPLE OUTPUT VERIFICATION
------------------------------
+   // Writing critical section (exclusive access)
+   write(shared_data);
+
+   sem_post(SEM_WRT);   // Release writer lock
+   ```
+
+4. Writer Starvation Trade-Off:
+   Because new readers can join the critical section as long as at least one reader
+   is active (`read_count > 0`), a continuous stream of arriving readers can delay
+   waiting writers indefinitely (Writer Starvation). Solutions like Writer-Preference
+   or Fair (FIFO) semaphores resolve this in production operating systems.
+
+
+3. SUMMARY OF MODIFIED & ADDED FILES
+--------------------------------------------------------------------------------
+File                  | Nature   | Purpose / Changes
+----------------------+----------+----------------------------------------------
+kernel/memlayout.h    | Modified | Defined SHM_VA = (TRAPFRAME - PGSIZE) = 0x3FFFFFFE000.
+kernel/defs.h         | Modified | Added declarations for shminit, shm_get, seminit,
+                      |          | ksem_init, ksem_wait, ksem_post, walk.
+kernel/main.c         | Modified | Initialized shared memory and semaphore tables.
+kernel/proc.c         | Modified | Propagated SHM_VA in fork(); preserved physical
+                      |          | frame on exit in proc_freepagetable().
+kernel/sysproc.c      | Modified | Implemented kernel semaphore subsystem and shm.
+kernel/syscall.h      | Modified | Defined SYS_shm_get (23), SYS_sem_init (24),
+                      |          | SYS_sem_wait (25), SYS_sem_post (26).
+kernel/syscall.c      | Modified | Registered syscall handlers.
+user/user.h           | Modified | Declared shm_get, sem_init, sem_wait, sem_post.
+user/usys.pl          | Modified | Added syscall stubs.
+Makefile              | Modified | Set CPUS := 1; cleared DETFLAGS; added $U/_readwrite.
+user/readwrite.c      | Created  | Test driver running 3 concurrent readers and
+                      |          | 2 concurrent writers with invariant assertions.
+
+
+4. DETAILED CODE WALKTHROUGH
+--------------------------------------------------------------------------------
+a) Shared State Structure (user/readwrite.c):
+   ```c
+   struct rw_shared {
+     int shared_data;       // Data variable incremented by writers
+     int read_count;        // Active reader counter
+     int active_readers;    // Verification counter of readers inside CS
+     int active_writers;    // Verification counter of writers inside CS (0 or 1)
+     int max_readers_seen;  // Peak concurrent readers observed
+     int total_writes;      // Total write operations completed
+     int violations;        // Safety assertion failure counter
+   };
+   ```
+
+b) Invariant Checking:
+   - When any writer enters, it verifies `active_readers == 0` and `active_writers == 0`.
+     If violated, `violations++`.
+   - When any reader enters, it verifies `active_writers == 0`. If violated, `violations++`.
+
+
+5. SYSTEM CALL SPECIFICATIONS
+--------------------------------------------------------------------------------
+1. void *shm_get(void)
+   - Returns pointer to shared physical page (`0x3FFFFFFE000`).
+2. int sem_init(int id, int value)
+   - Initializes semaphore `id` with `value`.
+3. int sem_wait(int id)
+   - Decrements semaphore `id`, blocking if `value <= 0`.
+4. int sem_post(int id)
+   - Increments semaphore `id` and wakes waiting processes.
+
+
+6. HOW TO COMPILE AND RUN
+--------------------------------------------------------------------------------
+Step 1: Open a terminal and navigate to this folder:
+        cd /home/udit/Desktop/xv6/readwrite
+
+Step 2: Clean and compile xv6, then launch QEMU:
+        make clean && make qemu
+
+Step 3: Inside the xv6 shell, run the test program:
+        $ readwrite
+
+Step 4: Exit QEMU:
+        Press Ctrl-A, release both keys, then press X.
+
+
+7. VERIFIED TEST EXECUTION OUTPUT & ANALYSIS
+--------------------------------------------------------------------------------
+Output Log:
+--------------------------------------------------------------------------------
 $ readwrite
 ============================================================
 Readers-Writers Problem Simulation (Readers-Preference)
@@ -111,3 +175,34 @@ SUCCESS:
   2. Writers had exclusive access (read_count = 0 and active_writers = 1).
   3. No lost updates or race conditions occurred.
 ============================================================
+
+Analysis:
+- Up to 3 readers accessed `shared_data` simultaneously (`max_readers_seen = 3`).
+- All 10 write operations executed with strictly `active_readers == 0` and
+  `active_writers == 1`.
+- Violations remained at 0, confirming mutual exclusion between reader group and writers.
+
+
+8. FREQUENTLY ASKED VIVA / LAB EXAM QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+Q1: Why does only the first reader call `sem_wait(SEM_WRT)`?
+A1: The first reader acts as the representative for all readers. It locks out
+    writers. Subsequent readers simply increment `read_count` and enter without
+    contending on `SEM_WRT`.
+
+Q2: Why does only the last reader call `sem_post(SEM_WRT)`?
+A2: As long as at least one reader remains active, writers must remain locked out.
+    Only when the final reader exits (`read_count == 0`) is it safe to signal
+    `SEM_WRT` to allow a waiting writer to proceed.
+
+Q3: What is the purpose of `SEM_MUTEX` in the reader protocol?
+A3: `SEM_MUTEX` protects the critical section that reads and modifies `read_count`.
+    Without `SEM_MUTEX`, concurrent readers could interleave updates to `read_count`,
+    potentially causing two readers to both think they are the first reader, or
+    failing to signal `SEM_WRT` on exit.
+
+Q4: What is the primary drawback of Reader-Preference?
+A4: Writer starvation. If new readers continuously arrive and increment `read_count`
+    before existing readers leave, `read_count` never drops to 0, and waiting writers
+    are starved indefinitely.
+================================================================================

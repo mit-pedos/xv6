@@ -1,92 +1,132 @@
 ================================================================================
-Operating Systems Lab Assignment
-Question 2: Process/Thread Synchronization using Counting Semaphores
+OPERATING SYSTEMS LAB ASSIGNMENT 7 - QUESTION 2
+Process/Thread Synchronization using Counting Semaphores
 ================================================================================
 
-1. OVERVIEW & DESIGN
---------------------
-This question implements a kernel-level counting semaphore subsystem in xv6 to eliminate
-race conditions among concurrent threads and coordinate multi-threaded workflows.
+1. ASSIGNMENT OVERVIEW & OBJECTIVE
+--------------------------------------------------------------------------------
+- Lab / Question : Lab 7, Question 2 (7b)
+- Topic          : Thread Synchronization & Kernel Counting Semaphores
+- Test Program   : user/synctest.c
+- Shell Command  : $ synctest
 
-Key Components:
+Objective:
+Implement a full kernel-level counting semaphore subsystem in xv6 to eliminate race
+conditions between concurrent threads sharing address space:
 1. Kernel Semaphore Subsystem:
-   - Structure in kernel:
-       struct semaphore {
-         struct spinlock lk;
-         int value;
-         int active;
-       };
-   - Fixed-size pool of semaphores (MAX_SEM = 16) maintained in kernel space.
-   - Uses xv6's native sleep_prepare(&sems[id]), sleep(), and wakeup(&sems[id]) primitives
-     tied to the process scheduler to put waiting threads to sleep and awaken them when
-     the semaphore is signaled.
+   - Provide 16 kernel counting semaphores (`MAX_SEM = 16`).
+   - Implement blocking synchronization via xv6's `sleep()` and `wakeup()` primitives.
+2. System Calls:
+   - `int sem_init(int sem_id, int value)`: Initializes semaphore count.
+   - `int sem_wait(int sem_id)`: Decrements count; blocks caller if count <= 0.
+   - `int sem_signal(int sem_id)`: Increments count and wakes sleeping threads.
+3. Verification:
+   - Part 1: Fix Question 1's race condition: 3 threads execute 100,000 increments
+     inside a semaphore critical section, achieving exactly 300,000 (0 lost updates).
+   - Part 2: Bounded-Buffer Producer-Consumer synchronization using `empty`, `full`,
+     and `mutex` semaphores over a 5-slot buffer.
 
-2. System Calls Implemented:
-   - int sem_init(int sem_id, int value):
-     Initializes semaphore sem_id with initial count value and activates it.
-   - int sem_wait(int sem_id):
-     Decrements the semaphore value. If value was <= 0, sleeps until value becomes positive.
-   - int sem_signal(int sem_id):
-     Increments the semaphore value and wakes up any threads sleeping on &sems[id].
 
-3. Thread Support (from Question 1):
-   - clone() and join() integrated into this directory so threads execute concurrently
-     in a shared address space.
+2. THEORETICAL BACKGROUND & OS PRINCIPLES
+--------------------------------------------------------------------------------
+1. Semaphore vs. Spinlock vs. Mutex:
+   - Spinlock (Busy-Waiting): Continuously polls a memory word using atomic instructions
+     (e.g., `amoswap`). Wastes CPU cycles; cannot be held across `sleep()`. Ideal for
+     short kernel critical sections.
+   - Counting Semaphore (Sleeping Lock): Non-negative integer counter. If a thread
+     requests a resource when none is available, the thread relinquishes the CPU and
+     transitions to `SLEEPING` state until awakened by `sem_signal()`.
+2. Eliminating Lost Updates:
+   - A non-atomic operation like `counter++` compiles into three CPU instructions:
+       `lw a5, 0(s0)`     (Load)
+       `addi a5, a5, 1`   (Modify)
+       `sw a5, 0(s0)`     (Store)
+   - When multiple threads execute this concurrently without synchronization, context
+     switches between load and store cause lost updates. Enclosing the sequence in
+     `sem_wait` and `sem_signal` ensures atomicity.
 
-4. User Test Program (user/synctest.c):
-   - Part 1: Eliminating the Race Condition:
-     * 3 concurrent threads each perform 100,000 increments on a shared counter.
-     * Each increment is enclosed within sem_wait(SEM_COUNTER) and sem_signal(SEM_COUNTER).
-     * Expected vs Actual: Exactly 300,000 reached (0 lost updates).
-     * Compares against Question 1's unsynchronized loss.
-   - Part 2: Classic Bounded-Buffer Producer-Consumer:
-     * Buffer size N = 5.
-     * 3 Semaphores:
-       - SEM_PC_MUTEX (init 1): Binary semaphore for buffer mutual exclusion.
-       - SEM_PC_EMPTY (init 5): Counting semaphore for free slots.
-       - SEM_PC_FULL  (init 0): Counting semaphore for filled items.
-     * Producer thread produces 15 items; Consumer thread consumes 15 items.
-     * Verified: Peak buffer usage strictly <= 5, final count = 0, strict FIFO ordering.
 
-2. FILES MODIFIED / ADDED
--------------------------
-- kernel/proc.h:
-  * Added int is_thread to struct proc.
-- kernel/defs.h:
-  * Declared kclone(), kjoin(), seminit(), ksem_init(), ksem_wait(), ksem_signal().
-- kernel/main.c:
-  * Added seminit() invocation during boot.
-- kernel/proc.c:
-  * Updated allocproc(), freeproc(), and kwait() to support threads without memory corruption.
-  * Implemented uvmshare(), kclone(), and kjoin().
-- kernel/sysproc.c:
-  * Implemented semaphore data structures and syscall handlers:
-    sys_sem_init(), sys_sem_wait(), sys_sem_signal(), sys_clone(), sys_join().
-- kernel/syscall.h & kernel/syscall.c:
-  * Registered SYS_clone (23), SYS_join (24), SYS_sem_init (25), SYS_sem_wait (26),
-    SYS_sem_signal (27).
-- user/user.h & user/usys.pl:
-  * Exported semaphore and thread syscall prototypes and stubs to user space.
-- user/synctest.c:
-  * Created test suite covering synchronized thread counters and bounded-buffer producer-consumer.
-- Makefile:
-  * Added $U/_synctest to UPROGS.
-  * Cleared DETFLAGS to prevent compiler errors on paths with spaces.
+3. SUMMARY OF MODIFIED & ADDED FILES
+--------------------------------------------------------------------------------
+File                  | Nature   | Purpose / Changes
+----------------------+----------+----------------------------------------------
+kernel/proc.h         | Modified | Retained int is_thread for thread identification.
+kernel/defs.h         | Modified | Declared kclone, kjoin, seminit, ksem_init,
+                      |          | ksem_wait, ksem_signal.
+kernel/main.c         | Modified | Added seminit() invocation during boot.
+kernel/proc.c         | Modified | Retained uvmshare(), kclone(), kjoin() from 7a.
+kernel/sysproc.c      | Modified | Implemented semaphore data structures and syscall
+                      |          | handlers: sys_sem_init, sys_sem_wait, sys_sem_signal.
+kernel/syscall.h      | Modified | Registered SYS_clone, SYS_join, SYS_sem_init,
+                      |          | SYS_sem_wait, SYS_sem_signal.
+kernel/syscall.c      | Modified | Wired syscall table.
+user/user.h           | Modified | Exported semaphore prototypes to user API.
+user/usys.pl          | Modified | Added syscall stubs.
+Makefile              | Modified | Set CPUS := 1; cleared DETFLAGS; added $U/_synctest.
+user/synctest.c       | Created  | Comprehensive test harness for synchronized counter
+                      |          | (Part 1) and bounded buffer producer-consumer (Part 2).
 
-3. HOW TO BUILD AND RUN
------------------------
-Inside this directory:
-    $ make clean
-    $ make qemu
 
-Once xv6 boots into the shell, run:
-    $ synctest
+4. DETAILED CODE WALKTHROUGH
+--------------------------------------------------------------------------------
+a) Kernel Semaphore Structure (kernel/sysproc.c):
+   ```c
+   struct semaphore {
+     struct spinlock lk;  // Protects semaphore value
+     int value;           // Current resource count
+     int active;          // 1 if allocated, 0 if unused
+   } sems[16];
+   ```
 
-To exit QEMU:
-    Press Ctrl+A, then X.
+b) Implementation of Operations:
+   - `ksem_wait(int sem_id)`:
+     ```c
+     acquire(&sems[sem_id].lk);
+     while (sems[sem_id].value <= 0) {
+       sleep(&sems[sem_id], &sems[sem_id].lk);
+     }
+     sems[sem_id].value--;
+     release(&sems[sem_id].lk);
+     ```
+   - `ksem_signal(int sem_id)`:
+     ```c
+     acquire(&sems[sem_id].lk);
+     sems[sem_id].value++;
+     wakeup(&sems[sem_id]);
+     release(&sems[sem_id].lk);
+     ```
 
-4. SAMPLE OUTPUT VERIFICATION
------------------------------
+
+5. SYSTEM CALL SPECIFICATIONS
+--------------------------------------------------------------------------------
+1. int sem_init(int sem_id, int value)
+   - Parameters: `sem_id` (0..15), `value` (initial count >= 0).
+   - Return Value: 0 on success, -1 on invalid argument.
+2. int sem_wait(int sem_id)
+   - Decrements count; blocks if count <= 0. Return 0 on success.
+3. int sem_signal(int sem_id)
+   - Increments count; wakes sleeping threads. Return 0 on success.
+
+
+6. HOW TO COMPILE AND RUN
+--------------------------------------------------------------------------------
+Step 1: Open a terminal and navigate to this folder:
+        cd /home/udit/Desktop/xv6/sync
+
+Step 2: Clean and compile xv6, then launch QEMU:
+        make clean && make qemu
+
+Step 3: Inside the xv6 shell, run the test program:
+        $ synctest
+
+Step 4: Exit QEMU:
+        Press Ctrl-A, release both keys, then press X.
+
+
+7. VERIFIED TEST EXECUTION OUTPUT & ANALYSIS
+--------------------------------------------------------------------------------
+Output Log:
+--------------------------------------------------------------------------------
 $ synctest
 ============================================================
       xv6 Process/Thread Synchronization using Semaphores   
@@ -129,3 +169,33 @@ Producer-Consumer synchronization fully verified!
 ============================================================
 All synchronization tests completed successfully!
 ============================================================
+
+Analysis:
+- In Part 1, all 300,000 increments were completely preserved with 0 lost updates,
+  resolving the 66% loss observed in Question 1 without synchronization.
+- In Part 2, peak buffer usage was strictly bounded at 5, and items were consumed
+  in FIFO sequence.
+
+
+8. FREQUENTLY ASKED VIVA / LAB EXAM QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+Q1: Why does `ksem_wait()` take a spinlock internally?
+A1: To protect the `value` variable and prevent a race condition between checking
+    `value <= 0` and calling `sleep()`. The internal spinlock is passed to `sleep()`,
+    which atomically releases it while placing the process on the sleep channel.
+
+Q2: What is the difference between `sem_signal` and `wakeup`?
+A2: `sem_signal` is the user-facing semaphore operation that increments the resource
+    counter and calls `wakeup()`. `wakeup()` is the internal xv6 kernel scheduling
+    primitive that transitions processes sleeping on a channel address (`chan`)
+    to the `RUNNABLE` state.
+
+Q3: Can a semaphore have a negative value in this implementation?
+A3: No. In this classical Dijkstra implementation, the value never drops below 0
+    because threads block in a `while (value <= 0)` loop before the decrement occurs.
+
+Q4: Why does Part 1 succeed with exactly 300,000 while Question 1 resulted in 100,000?
+A4: Because `sem_wait` and `sem_signal` enforce mutual exclusion: only one thread at
+    a time can execute the read-modify-write instructions of `counter++`, preventing
+    interleaved overwrite of registers.
+================================================================================

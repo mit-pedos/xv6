@@ -1,68 +1,129 @@
 ================================================================================
-Question 1: Memory Management: Tracking Physical Memory Allocation in xv6
+OPERATING SYSTEMS LAB ASSIGNMENT 10 - QUESTION 1
+Tracking Physical Memory Allocation (memstats)
 ================================================================================
 
-1. OVERVIEW & OBJECTIVES
+1. ASSIGNMENT OVERVIEW & OBJECTIVE
 --------------------------------------------------------------------------------
-This implementation tracks physical memory allocation and deallocation across
-the lifetime of the xv6 kernel:
-a) Maintained Allocation Counters in `kernel/kalloc.c`:
-   - `kmem.total_allocated`: Lifetime count of physical pages allocated by `kalloc()`.
-   - `kmem.total_freed`: Lifetime count of physical pages freed by `kfree()`.
-   - `kmem.available_pages`: Number of physical frames currently in the free list.
-   - Initialized `kmem.initialized` flag to distinguish initial bootstrap page
-     registration from runtime dynamic allocations.
-b) System Call `int memstats(void)`:
-   - Traverses `kmem` counters under `kmem.lock` and outputs formatted statistics:
-     * Total Allocated Pages
-     * Total Freed Pages
-     * Currently Allocated Pages (`total_allocated - total_freed`)
-     * Available Physical Memory Pages
-c) User Test Program (`memtest.c`):
-   - Measures initial baseline memory statistics.
-   - Allocates 10 pages (40 KB) using `sbrk()`, touches the pages, and verifies:
-     * `total_allocated` increases by 10.
-     * `currently_allocated` increases by 10.
-     * `available_pages` decreases by 10.
-   - Deallocates the 10 pages using `sbrk(-40960)` and verifies:
-     * `total_freed` increases by 10.
-     * `currently_allocated` returns to baseline.
-     * `available_pages` is fully restored.
+- Lab / Question : Lab 10, Question 1 (10a) [Also referenced as Lab 8b]
+- Topic          : Physical Memory Management & Lifetime Allocation Statistics
+- Test Program   : user/memtest.c
+- Shell Command  : $ memtest
 
-2. FILES MODIFIED & ADDED
+Objective:
+Track cumulative physical memory allocation and deallocation across the lifetime
+of the xv6 kernel:
+1. Maintain Allocation Counters in `kernel/kalloc.c`:
+   - `kmem.total_allocated`: Cumulative physical pages allocated by `kalloc()`.
+   - `kmem.total_freed`: Cumulative physical pages freed by `kfree()`.
+   - `kmem.available_pages`: Physical frames currently in the free list.
+   - `kmem.initialized`: Flag to distinguish initial bootstrap free-page insertion
+     from runtime deallocations.
+2. System Call `int memstats(void)`:
+   - Prints formatted statistics: Total Allocated Pages, Total Freed Pages,
+     Currently Allocated Pages (`total_allocated - total_freed`), and Available Pages.
+3. User Verification (`memtest.c`):
+   - Measure initial baseline.
+   - Allocate 10 pages via `sbrk(10 * 4096)`, verify `total_allocated += 10` and `available -= 10`.
+   - Free 10 pages via `sbrk(-10 * 4096)`, verify `total_freed += 10` and `available` restored.
+
+
+2. THEORETICAL BACKGROUND & OS PRINCIPLES
 --------------------------------------------------------------------------------
-- kernel/kalloc.c:
-  * Added `total_allocated`, `total_freed`, `available_pages`, and `initialized`
-    to `struct kmem`.
-  * Updated counters in `kinit()`, `kfree()`, and `kalloc()` under `kmem.lock`.
-  * Implemented `memstats()` printing formatted allocation metrics.
-- kernel/defs.h:
-  * Declared `int memstats(void);`.
-  * Added `#define cprintf printk` and `#define printf printk`.
-- kernel/sysproc.c:
-  * Added system call handler `sys_memstats(void)`.
-- kernel/syscall.h & kernel/syscall.c:
-  * Registered system call `SYS_memstats` (23).
-- user/user.h & user/usys.pl:
-  * Declared and exported `int memstats(void);`.
-- Makefile:
-  * Cleared `DETFLAGS = ` to support paths containing spaces.
-  * Added `$U/_memtest\` to `UPROGS`.
-- user/memtest.c:
-  * Verification program testing allocation, deallocation, and counter dynamics.
+1. Memory Accounting Invariants:
+   At any point in time $t$ after boot:
+     $$\text{Currently Allocated Pages} = \text{Total Allocated} - \text{Total Freed}$$
+     $$\text{Available Pages} = \text{Total Initial Free Pages} - \text{Currently Allocated}$$
+2. The Bootstrap vs. Runtime Challenge:
+   - During kernel startup (`kinit()`), xv6 populates its free list by calling
+     `kfree()` on every physical frame from `end` to `PHYSTOP`.
+   - If `kfree()` blindly incremented `total_freed` during boot, the statistics would
+     be skewed. We introduce `kmem.initialized = 0` during boot. Only after `kinit()`
+     finishes is `kmem.initialized = 1`, ensuring that `total_freed` strictly tracks
+     runtime deallocations.
 
-3. HOW TO BUILD AND RUN
+
+3. SUMMARY OF MODIFIED & ADDED FILES
 --------------------------------------------------------------------------------
-From this directory:
-    $ make qemu
+File                  | Nature   | Purpose / Changes
+----------------------+----------+----------------------------------------------
+kernel/kalloc.c       | Modified | Added total_allocated, total_freed, available_pages,
+                      |          | and initialized flag to struct kmem; implemented
+                      |          | memstats() printer.
+kernel/defs.h         | Modified | Declared int memstats(void).
+kernel/sysproc.c      | Modified | Implemented sys_memstats(void) syscall handler.
+kernel/syscall.h      | Modified | Defined SYS_memstats (23).
+kernel/syscall.c      | Modified | Registered sys_memstats in syscall table.
+user/user.h           | Modified | Declared int memstats(void) in user API.
+user/usys.pl          | Modified | Added entry("memstats") syscall stub.
+Makefile              | Modified | Set CPUS := 1; cleared DETFLAGS; added $U/_memtest.
+user/memtest.c        | Created  | Memory allocation test program verifying +10 and
+                      |          | -10 page dynamics.
 
-Inside xv6 shell:
-    $ memtest
 
-To exit QEMU:
-    Press Ctrl-A then x
+4. DETAILED CODE WALKTHROUGH (kernel/kalloc.c)
+--------------------------------------------------------------------------------
+```c
+struct {
+  struct spinlock lock;
+  struct run *freelist;
+  uint64 total_allocated;  // Total pages allocated since boot
+  uint64 total_freed;      // Total pages freed since boot
+  uint64 available_pages;  // Current free pages in freelist
+  int initialized;         // Set to 1 after boot completes
+} kmem;
 
-4. VERIFIED TEST OUTPUT LOG
+void *kalloc(void) {
+  acquire(&kmem.lock);
+  r = kmem.freelist;
+  if (r) {
+    kmem.freelist = r->next;
+    kmem.available_pages--;
+    if (kmem.initialized)
+      kmem.total_allocated++;
+  }
+  release(&kmem.lock);
+  ...
+}
+
+void kfree(void *pa) {
+  ...
+  acquire(&kmem.lock);
+  r->next = kmem.freelist;
+  kmem.freelist = r;
+  kmem.available_pages++;
+  if (kmem.initialized)
+    kmem.total_freed++;
+  release(&kmem.lock);
+}
+```
+
+
+5. SYSTEM CALL SPECIFICATION
+--------------------------------------------------------------------------------
+int memstats(void)
+- Syscall Number: SYS_memstats (23)
+- Return Value: 0 on success. Prints memory statistics to the console.
+
+
+6. HOW TO COMPILE AND RUN
+--------------------------------------------------------------------------------
+Step 1: Open a terminal and navigate to this folder:
+        cd /home/udit/Desktop/xv6/memstats
+
+Step 2: Clean and compile xv6, then launch QEMU:
+        make clean && make qemu
+
+Step 3: Inside the xv6 shell, run the test program:
+        $ memtest
+
+Step 4: Exit QEMU:
+        Press Ctrl-A, release both keys, then press X.
+
+
+7. VERIFIED TEST EXECUTION OUTPUT & ANALYSIS
+--------------------------------------------------------------------------------
+Output Log:
 --------------------------------------------------------------------------------
 $ memtest
 ============================================================
@@ -107,3 +168,28 @@ Observations:
   2. Releasing the memory increased total freed pages and restored
      the available physical pages.
 ============================================================
+
+Analysis:
+- In Step 1, currently allocated was 201 pages. Available was 32531 pages.
+- In Step 2, allocating 10 pages raised total allocated from 241 to 251, currently
+  allocated from 201 to 211, and reduced available from 32531 to 32521.
+- In Step 3, deallocating 10 pages raised total freed from 40 to 50, currently
+  allocated returned to 201, and available restored to exactly 32531.
+
+
+8. FREQUENTLY ASKED VIVA / LAB EXAM QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+Q1: Why is the `initialized` flag necessary in `kmem`?
+A1: When xv6 boots, `freerange()` calls `kfree()` on tens of thousands of pages to
+    build the initial free list. Without the `initialized` flag, all bootstrap free
+    calls would be counted as runtime "freed pages", corrupting the lifetime
+    allocation statistics.
+
+Q2: Why must `kmem.lock` be held when reading or modifying memory statistics?
+A2: Multiple CPU cores can call `kalloc()` and `kfree()` concurrently. Accessing
+    or updating the counters without holding `kmem.lock` would result in data races
+    and inaccurate memory statistics.
+
+Q3: How is Currently Allocated Pages calculated?
+A3: $\text{Currently Allocated} = \text{Total Allocated} - \text{Total Freed}$.
+================================================================================

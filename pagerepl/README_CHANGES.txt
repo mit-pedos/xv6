@@ -1,91 +1,112 @@
 ================================================================================
-  Question 3 — Page Replacement Algorithms (FIFO and LRU / pagerepl)
+OPERATING SYSTEMS LAB ASSIGNMENT 9 - QUESTION 3
+Page Replacement Algorithms: FIFO and LRU (pagerepl)
 ================================================================================
 
-1. OVERVIEW & OBJECTIVE
+1. ASSIGNMENT OVERVIEW & OBJECTIVE
 --------------------------------------------------------------------------------
-This implementation builds a user-space simulation program `pagerepl.c` in xv6
-that simulates and compares two classic page replacement policies:
-  1. First-In, First-Out (FIFO)
-  2. Least Recently Used (LRU)
+- Lab / Question : Lab 9, Question 3 (9c) [Also referenced as Lab 10d]
+- Topic          : Virtual Memory & Page Replacement Policies
+- Test Program   : user/pagerepl.c
+- Shell Command  : $ pagerepl
 
-Features:
-  - Accepts the number of frames and reference string as command-line input:
-        $ pagerepl [num_frames] [page1 page2 ...]
-    or runs the standard default 20-page reference sequence when invoked without
-    arguments:
+Objective:
+Implement a complete simulation in xv6 comparing the two fundamental page
+replacement policies:
+1. First-In, First-Out (FIFO)
+2. Least Recently Used (LRU)
+
+The simulation tests the standard 20-reference page request string:
+    7, 0, 1, 2, 0, 3, 0, 4, 2, 3, 0, 3, 2, 1, 2, 0, 1, 7, 0, 1
+across physical frame capacities of 3, 4, and 5 frames, calculating page faults,
+hits, and hit ratios, and proving that LRU consistently outperforms FIFO by
+exploiting temporal locality.
+
+
+2. THEORETICAL BACKGROUND & OS PRINCIPLES
+--------------------------------------------------------------------------------
+1. Why Page Replacement is Needed:
+   - When demand paging is used, a process may reference a page that is not in
+     memory. The kernel issues a page fault and attempts to allocate a physical frame.
+   - If physical memory is completely exhausted (all frames occupied), the OS must
+     evict an existing resident page to swap space to make room for the newly demanded page.
+
+2. First-In, First-Out (FIFO):
+   - Evicts the page that has resided in memory the longest (oldest arrival timestamp).
+   - Suffers from **Belady's Anomaly**: increasing the number of allocated physical
+     frames can paradoxically *increase* the number of page faults.
+
+3. Least Recently Used (LRU):
+   - Exploits the Principle of Temporal Locality: pages referenced in the immediate
+     past are highly likely to be referenced again soon.
+   - Evicts the page that has not been accessed for the longest period of time.
+   - Belongs to the class of **Stack Algorithms**: the set of pages in an $n$-frame
+     memory is always a subset of the pages in an $(n+1)$-frame memory.
+   - Therefore, LRU is mathematically immune to Belady's Anomaly.
+
+
+3. SUMMARY OF MODIFIED & ADDED FILES
+--------------------------------------------------------------------------------
+File                  | Nature   | Purpose / Changes
+----------------------+----------+----------------------------------------------
+user/sh.c             | Modified | Increased MAXARGS to 32 to accept custom
+                      |          | 20-page command-line reference strings.
+user/pagerepl.c       | Created  | Complete simulation program implementing FIFO,
+                      |          | LRU, step-by-step frame dump, and comparison tables.
+Makefile              | Modified | Set CPUS := 1; cleared DETFLAGS; added $U/_pagerepl.
+
+
+4. DETAILED CODE WALKTHROUGH (user/pagerepl.c)
+--------------------------------------------------------------------------------
+a) FIFO Implementation:
+   - Maintains a circular replacement pointer `fifo_ptr = 0`.
+   - On page fault when all frames are full:
+     ```c
+     int victim = fifo_ptr;
+     frames[victim] = page;
+     fifo_ptr = (fifo_ptr + 1) % num_frames;
+     ```
+
+b) LRU Implementation:
+   - Maintains an access timestamp array `last_used[num_frames]`.
+   - On every access (both hits and faults):
+     `last_used[frame_index] = current_step;`
+   - On page fault when all frames are full:
+     Scans `last_used[]` to find the frame with the minimum timestamp:
+     ```c
+     int lru_frame = 0;
+     for (int f = 1; f < num_frames; f++) {
+       if (last_used[f] < last_used[lru_frame])
+         lru_frame = f;
+     }
+     frames[lru_frame] = page;
+     last_used[lru_frame] = current_step;
+     ```
+
+
+5. HOW TO COMPILE AND RUN
+--------------------------------------------------------------------------------
+Step 1: Open a terminal and navigate to this folder:
+        cd /home/udit/Desktop/xv6/pagerepl
+
+Step 2: Clean and compile xv6, then launch QEMU:
+        make clean && make qemu
+
+Step 3: Inside the xv6 shell, run the test program:
         $ pagerepl
-  - Displays the physical frame state and whether each reference was a HIT or
-    FAULT at every step.
-  - Tests the reference string:
-        7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1
-    with 3 physical frames, verifying the exact theoretical outcomes:
-      * FIFO: 15 page faults (Hit Ratio: 25.00%)
-      * LRU:  12 page faults (Hit Ratio: 40.00%)
-  - Evaluates performance across 3, 4, and 5 frames, printing a comparative
-    summary table with fault counts and hit ratios.
+        (or pass custom frames and pages: $ pagerepl 3 7 0 1 2 0 3 0 4)
+
+Step 4: Exit QEMU:
+        Press Ctrl-A, release both keys, then press X.
 
 
-2. ALGORITHM DESIGN & LOGIC
+6. VERIFIED TEST EXECUTION OUTPUT & ANALYSIS
 --------------------------------------------------------------------------------
-1. FIFO Algorithm:
-   - Tracks the arrival order of pages using a circular FIFO index queue.
-   - On a page fault when frames are full, evicts the oldest arrived page
-     regardless of recent access patterns.
-
-2. LRU Algorithm:
-   - Tracks the timestamp / step of the most recent access for each resident frame.
-   - On a page hit, refreshes that frame's last-accessed timestamp.
-   - On a page fault when frames are full, evicts the frame whose last-accessed
-     timestamp is lowest (least recently used).
-
-3. Enhanced xv6 Shell Support:
-   - Updated `MAXARGS` in `user/sh.c` to 32 to support passing full reference
-     strings directly via command-line arguments.
-   - Enhanced `pagerepl.c` to parse both space-delimited argument lists and
-     single quoted strings.
-
-
-3. FILES MODIFIED / ADDED
---------------------------------------------------------------------------------
-- user/pagerepl.c    : Complete simulation program with step-by-step trace and
-                       multi-frame comparison tables.
-- user/sh.c          : Increased MAXARGS to 32 to support longer CLI argument lists.
-- Makefile           : Added $U/_pagerepl to UPROGS and cleaned DETFLAGS.
-- README_CHANGES.txt : This documentation.
-
-
-4. HOW TO BUILD AND RUN
---------------------------------------------------------------------------------
-To compile and launch xv6 in QEMU:
-    $ cd "/home/udit/Desktop/os lab/pagerepl"
-    $ make clean
-    $ make qemu
-
-Inside xv6 shell:
-- Run default verification test (3 frames & 3, 4, 5 frame comparison):
-    $ pagerepl
-
-- Run with custom frame size and reference string:
-    $ pagerepl 3 7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1
-    $ pagerepl 4 1 2 3 4 1 2 5 1 2 3 4 5
-
-To exit QEMU:
-    Press Ctrl-A followed by X.
-
-
-5. VERIFIED EXECUTION OUTPUT
+Output Log:
 --------------------------------------------------------------------------------
 $ pagerepl
 ============================================================
-     Page Replacement Algorithms Simulation (FIFO vs LRU)  
-============================================================
-
-Reference String (20 references):
-  7 0 1 2 0 3 0 4 2 3 0 3 2 1 2 0 1 7 0 1 
-
-============================================================
-TASK B: Testing with 3 Frames (Step-by-Step Trace)
+       Page Replacement Simulation: FIFO vs LRU             
 ============================================================
 
 ------------------------------------------------------------
@@ -144,10 +165,6 @@ FIFO Result (3 frames): Faults = 15, Hits = 5, Hit Ratio = 25.00%
 ------------------------------------------------------------
 LRU Result (3 frames): Faults = 12, Hits = 8, Hit Ratio = 40.00%
 
---- Verification Against Expected Results (3 Frames) ---
-FIFO Faults: 15 (Expected: 15) -> VERIFIED
-LRU  Faults: 12 (Expected: 12) -> VERIFIED
-
 ============================================================
 TASK C: Performance Comparison Across 3, 4, and 5 Frames
 ============================================================
@@ -168,4 +185,32 @@ TASK C: Performance Comparison Across 3, 4, and 5 Frames
 ============================================================
 pagerepl: Simulation finished successfully!
 ============================================================
+
+Analysis:
+- For 3 frames: LRU yielded 12 faults (40.00% hit ratio) compared to FIFO's 15 faults (25.00%).
+- For 4 frames: LRU yielded 8 faults vs FIFO's 10 faults.
+- For 5 frames: LRU yielded 7 faults vs FIFO's 9 faults.
+- Across every configuration, LRU strictly outperformed FIFO.
+
+
+7. FREQUENTLY ASKED VIVA / LAB EXAM QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+Q1: What is Belady's Anomaly and which page replacement algorithm exhibits it?
+A1: Belady's Anomaly is the phenomenon where giving more physical frames to a process
+    results in an increase in page faults rather than a decrease. FIFO exhibits
+    Belady's Anomaly because it replaces the oldest page without regard to how frequently
+    or recently it is accessed.
+
+Q2: Why is LRU immune to Belady's Anomaly?
+A2: LRU is a "stack algorithm". A page replacement algorithm is a stack algorithm if
+    the set of pages resident in $N$ frames of memory is always a strict subset of
+    the pages that would be resident in $N+1$ frames of memory. Stack algorithms can
+    never suffer from Belady's Anomaly.
+
+Q3: Why is true LRU difficult to implement in hardware?
+A3: True LRU requires either updating a high-precision hardware clock counter on
+    EVERY memory reference (read or write) and storing it in the PTE, or maintaining
+    a doubly linked hardware stack of page references, both of which incur substantial
+    hardware and performance overhead. Operating systems typically approximate LRU
+    using the Second-Chance (Clock) algorithm with a reference bit (`PTE_A`).
 ================================================================================
