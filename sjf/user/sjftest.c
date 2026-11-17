@@ -49,6 +49,7 @@ int main(int argc, char *argv[]) {
   printf("\n[Parent] All children forked. Waiting for completion...\n\n");
 
   for (int order = 1; order <= NUM_CHILDREN; order++) {
+    set_burst(getpid(), 1); // Keep parent prioritized to reap children as soon as each exits
     int finished_pid = wait(0);
     int child_idx = -1;
     int bt = -1;

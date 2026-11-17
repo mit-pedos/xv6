@@ -13,6 +13,7 @@
 struct rw_shared {
   int shared_data;
   int read_count;
+  int active_readers;
   int active_writers;
   int max_readers_seen;
   int total_writes;
@@ -29,7 +30,8 @@ void reader(struct rw_shared *sh, int id) {
     if (sh->read_count == 1) {
       sem_wait(SEM_WRT); // First reader locks out writers
     }
-    int cur_readers = sh->read_count;
+    sh->active_readers++;
+    int cur_readers = sh->active_readers;
     if (cur_readers > sh->max_readers_seen) {
       sh->max_readers_seen = cur_readers;
     }
@@ -49,6 +51,7 @@ void reader(struct rw_shared *sh, int id) {
 
     // Exit section
     sem_wait(SEM_MUTEX);
+    sh->active_readers--;
     sh->read_count--;
     if (sh->read_count == 0) {
       sem_post(SEM_WRT); // Last reader unlocks writers
@@ -72,9 +75,9 @@ void writer(struct rw_shared *sh, int id) {
     sh->active_writers++;
 
     // Assert mutual exclusion
-    if (sh->read_count != 0) {
+    if (sh->active_readers != 0) {
       printf("VIOLATION: Writer [pid %d] writing while %d readers active!\n",
-             getpid(), sh->read_count);
+             getpid(), sh->active_readers);
       sh->violations++;
     }
     if (sh->active_writers > 1) {
@@ -88,7 +91,7 @@ void writer(struct rw_shared *sh, int id) {
     int new_val = sh->shared_data;
 
     printf("Writer %d [pid %d]: wrote shared_data = %d | active readers = %d, active writers = %d\n",
-           id, getpid(), new_val, sh->read_count, sh->active_writers);
+           id, getpid(), new_val, sh->active_readers, sh->active_writers);
 
     pause(1); // simulate write duration
 
@@ -121,6 +124,7 @@ int main(int argc, char *argv[]) {
   // Initialize shared state
   sh->shared_data = 0;
   sh->read_count = 0;
+  sh->active_readers = 0;
   sh->active_writers = 0;
   sh->max_readers_seen = 0;
   sh->total_writes = 0;
@@ -181,7 +185,7 @@ int main(int argc, char *argv[]) {
       sh->max_readers_seen > 1) {
     printf("SUCCESS:\n");
     printf("  1. Multiple readers read simultaneously (max = %d).\n", sh->max_readers_seen);
-    printf("  2. Writers had exclusive access (read_count = 0 and active_writers = 1).\n");
+    printf("  2. Writers had exclusive access (active_readers = 0 and active_writers = 1).\n");
     printf("  3. No lost updates or race conditions occurred.\n");
   } else {
     printf("FAILURE: Synchronization assertions failed!\n");
