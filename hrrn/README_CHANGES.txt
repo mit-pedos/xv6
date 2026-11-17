@@ -87,4 +87,43 @@ Step 4: Exit QEMU:
 - Shorter jobs (P2, P3) are prioritized and complete first.
 - Medium and long jobs have their response ratios elevated over time due to aging wait time.
 - All processes complete, verifying that long jobs never starve indefinitely.
+
+6. VERIFIED TEST OUTPUT LOG
+--------------------------------------------------------------------------------
+$ hrrntest
+============================================================
+  Highest Response Ratio Next (HRRN) Non-Preemptive Test    
+============================================================
+Parent PID: 3
+Forking 4 processes:
+  Child 1: Very Long Job (BT = 80 ticks)
+  Child 2: Short Job     (BT = 10 ticks)
+  Child 3: Short Job     (BT = 10 ticks)
+  Child 4: Medium Job    (BT = 30 ticks)
+
+[Parent] Forked Child 1 (PID 4, declared BT = 80) at tick 9
+[Parent] Forked Child 2 (PID 5, declared BT = 10) at tick 9
+[Parent] Forked Child 3 (PID 6, declared BT = 10) at tick 9
+[Parent] Forked Child 4 (PID 7, declared BT = 30) at tick 9
+
+[Parent] All 4 children forked. Waiting for completion...
+
+[Child 2 | PID 5 | BT 10] -> STARTED workload at tick 9
+[Child 2 | PID 5 | BT 10] -> 50% progress reached at tick 10
+[Child 2 | PID 5 | BT 10] -> COMPLETED workload at tick 11
+>> Completion Order 1: PID 5 (Child 2, Burst Time 10 ticks, finished at tick 12)
+[Child 3 | PID 6 | BT 10] -> STARTED workload at tick 12
+[Child 3 | PID 6 | BT 10] -> 50% progress reached at tick 13
+[Child 3 | PID 6 | BT 10] -> COMPLETED workload at tick 14
+>> Completion Order 2: PID 6 (Child 3, Burst Time 10 ticks, finished at tick 14)
+[Child 4 | PID 7 | BT 30] -> STARTED workload at tick 14
+[Child 4 | PID 7 | BT 30] -> 50% progress reached at tick 17
+[Child 4 | PID 7 | BT 30] -> COMPLETED workload at tick 20
+>> Completion Order 3: PID 7 (Child 4, Burst Time 30 ticks, finished at tick 21)
+[Child 1 | PID 4 | BT 80] -> STARTED workload at tick 21
+[Child 1 | PID 4 | BT 80] -> 50% progress reached at tick 27
+[Child 1 | PID 4 | BT 80] -> COMPLETED workload at tick 34
+>> Completion Order 4: PID 4 (Child 1, Burst Time 80 ticks, finished at tick 34)
+
+--- HRRN Test Passed: Short jobs ran early; long jobs completed without starvation! ---
 ================================================================================

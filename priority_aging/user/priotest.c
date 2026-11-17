@@ -19,6 +19,9 @@ int main(int argc, char *argv[]) {
   printf("  Child 3: Priority %d (Medium-Low)\n", priorities[2]);
   printf("  Child 4: Priority %d (Lowest)\n\n", priorities[3]);
 
+  // Keep parent prioritized while forking children
+  set_priority(getpid(), 1);
+
   for (int i = 0; i < NUM_CHILDREN; i++) {
     int pid = fork();
     if (pid < 0) {
@@ -57,6 +60,7 @@ int main(int argc, char *argv[]) {
   printf("[Parent] All children forked. Waiting for completion...\n\n");
 
   for (int order = 1; order <= NUM_CHILDREN; order++) {
+    set_priority(getpid(), 1); // Keep parent prioritized to reap children as soon as each exits
     int finished_pid = wait(0);
     int child_idx = -1;
     int init_prio = -1;
@@ -67,8 +71,8 @@ int main(int argc, char *argv[]) {
         break;
       }
     }
-    printf(">> Completion Order %d: PID %d (Child %d, Initial Priority %d)\n",
-           order, finished_pid, child_idx, init_prio);
+    printf(">> Completion Order %d: PID %d (Child %d, Initial Priority %d, finished at tick %d)\n",
+           order, finished_pid, child_idx, init_prio, uptime());
   }
 
   printf("\n============================================================\n");

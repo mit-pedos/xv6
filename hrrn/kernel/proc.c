@@ -498,7 +498,9 @@ scheduler(void)
           ratio = 100;
         }
 
-        if (best_p == 0 || ratio > max_ratio) {
+        if (best_p == 0 || ratio > max_ratio ||
+            (ratio == max_ratio && p->burst_time > 0 &&
+             (best_p->burst_time <= 0 || p->burst_time < best_p->burst_time))) {
           if (best_p)
             release(&best_p->lock);
           max_ratio = ratio;

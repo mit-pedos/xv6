@@ -84,22 +84,22 @@ Forking 4 CPU-bound processes with priorities:
 
 [Parent] All children forked. Waiting for completion...
 
-[Child 1 | PID 4] Starting execution at tick 2 (Initial: 5, Current: 5)
-[Child 1 | PID 4] 50% Workload Done (Initial: 5 -> Current: 5, tick: 11)
-[Child 1 | PID 4] Workload Completed! (Initial: 5 -> Final: 5, tick: 21)
-[Child 2 | PID 5] Starting execution at tick 21 (Initial: 8, Current: 8)
-[Child 2 | PID 5] 50% Workload Done (Initial: 8 -> Current: 8, tick: 31)
-[Child 2 | PID 5] Workload Completed! (Initial: 8 -> Final: 8, tick: 40)
->> Completion Order 1: PID 4 (Child 1, Initial Priority 5)
->> Completion Order 2: PID 5 (Child 2, Initial Priority 8)
-[Child 3 | PID 6] Starting execution at tick 41 (Initial: 12, Current: 11)
-[Child 3 | PID 6] 50% Workload Done (Initial: 12 -> Current: 11, tick: 50)
-[Child 3 | PID 6] Workload Completed! (Initial: 12 -> Final: 11, tick: 60)
->> Completion Order 3: PID 6 (Child 3, Initial Priority 12)
-[Child 4 | PID 7] Starting execution at tick 60 (Initial: 20, Current: 19)
-[Child 4 | PID 7] 50% Workload Done (Initial: 20 -> Current: 19, tick: 70)
-[Child 4 | PID 7] Workload Completed! (Initial: 20 -> Final: 19, tick: 79)
->> Completion Order 4: PID 7 (Child 4, Initial Priority 20)
+[Child 1 | PID 4] Starting execution at tick 9 (Initial: 5, Current: 5)
+[Child 1 | PID 4] 50% Workload Done (Initial: 5 -> Current: 5, tick: 18)
+[Child 1 | PID 4] Workload Completed! (Initial: 5 -> Final: 5, tick: 27)
+>> Completion Order 1: PID 4 (Child 1, Initial Priority 5, finished at tick 27)
+[Child 2 | PID 5] Starting execution at tick 27 (Initial: 8, Current: 8)
+[Child 2 | PID 5] 50% Workload Done (Initial: 8 -> Current: 8, tick: 37)
+[Child 2 | PID 5] Workload Completed! (Initial: 8 -> Final: 8, tick: 46)
+>> Completion Order 2: PID 5 (Child 2, Initial Priority 8, finished at tick 46)
+[Child 3 | PID 6] Starting execution at tick 46 (Initial: 12, Current: 11)
+[Child 3 | PID 6] 50% Workload Done (Initial: 12 -> Current: 11, tick: 55)
+[Child 3 | PID 6] Workload Completed! (Initial: 12 -> Final: 11, tick: 64)
+>> Completion Order 3: PID 6 (Child 3, Initial Priority 12, finished at tick 64)
+[Child 4 | PID 7] Starting execution at tick 64 (Initial: 20, Current: 19)
+[Child 4 | PID 7] 50% Workload Done (Initial: 20 -> Current: 19, tick: 73)
+[Child 4 | PID 7] Workload Completed! (Initial: 20 -> Final: 19, tick: 82)
+>> Completion Order 4: PID 7 (Child 4, Initial Priority 20, finished at tick 82)
 
 ============================================================
 Test Summary:
